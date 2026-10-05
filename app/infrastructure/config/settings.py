@@ -1,8 +1,9 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from sqlalchemy import URL
 
 
 class Settings(BaseSettings):
@@ -18,6 +19,24 @@ class Settings(BaseSettings):
     environment: Literal["local", "test", "production"] = "local"
     debug: bool = False
     api_v1_prefix: str = "/api/v1"
+    db_host: str = "localhost"
+    db_port: int = 5432
+    db_name: str = "payment"
+    db_user: str = "payment"
+    db_password: SecretStr = SecretStr("payment")
+
+    @property
+    def database_url(self) -> URL:
+        """Собирает URL PostgreSQL из отдельных настроек подключения."""
+
+        return URL.create(
+            drivername="postgresql+asyncpg",
+            username=self.db_user,
+            password=self.db_password.get_secret_value(),
+            host=self.db_host,
+            port=self.db_port,
+            database=self.db_name,
+        )
 
 
 @lru_cache
