@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     environment: Literal["local", "test", "production"] = "local"
     debug: bool = False
     api_v1_prefix: str = "/api/v1"
+    api_key: SecretStr = SecretStr("change-me")
     db_host: str = "localhost"
     db_port: int = 5432
     db_name: str = "payment"
