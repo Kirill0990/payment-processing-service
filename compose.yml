@@ -1,0 +1,73 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: payment
+      POSTGRES_USER: payment
+      POSTGRES_PASSWORD: payment
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U payment -d payment"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  rabbitmq:
+    image: rabbitmq:4-management
+    environment:
+      RABBITMQ_DEFAULT_USER: payment
+      RABBITMQ_DEFAULT_PASS: payment
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  migrations:
+    build: .
+    command: alembic upgrade head
+    environment: &application-environment
+      APP_API_KEY: development-api-key
+      APP_DB_HOST: postgres
+      APP_DB_PORT: 5432
+      APP_DB_NAME: payment
+      APP_DB_USER: payment
+      APP_DB_PASSWORD: payment
+      APP_RABBITMQ_HOST: rabbitmq
+      APP_RABBITMQ_PORT: 5672
+      APP_RABBITMQ_USER: payment
+      APP_RABBITMQ_PASSWORD: payment
+      APP_RABBITMQ_VHOST: /
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    build: .
+    environment: *application-environment
+    ports:
+      - "8000:8000"
+    depends_on:
+      migrations:
+        condition: service_completed_successfully
+      rabbitmq:
+        condition: service_healthy
+
+  consumer:
+    build: .
+    command: faststream run app.presentation.worker:app
+    environment: *application-environment
+    depends_on:
+      migrations:
+        condition: service_completed_successfully
+      rabbitmq:
+        condition: service_healthy
+
+volumes:
+  postgres-data:

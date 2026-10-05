@@ -1,5 +1,6 @@
 from functools import lru_cache
 from typing import Literal
+from urllib.parse import quote
 
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -25,6 +26,12 @@ class Settings(BaseSettings):
     db_name: str = "payment"
     db_user: str = "payment"
     db_password: SecretStr = SecretStr("payment")
+    rabbitmq_host: str = "localhost"
+    rabbitmq_port: int = 5672
+    rabbitmq_user: str = "guest"
+    rabbitmq_password: SecretStr = SecretStr("guest")
+    rabbitmq_vhost: str = "/"
+    outbox_poll_interval: float = 1.0
 
     @property
     def database_url(self) -> URL:
@@ -38,6 +45,15 @@ class Settings(BaseSettings):
             port=self.db_port,
             database=self.db_name,
         )
+
+    @property
+    def rabbitmq_url(self) -> str:
+        """Собирает AMQP URL из отдельных настроек RabbitMQ."""
+
+        user = quote(self.rabbitmq_user, safe="")
+        password = quote(self.rabbitmq_password.get_secret_value(), safe="")
+        vhost = quote(self.rabbitmq_vhost, safe="")
+        return f"amqp://{user}:{password}@{self.rabbitmq_host}:{self.rabbitmq_port}/{vhost}"
 
 
 @lru_cache

@@ -1,9 +1,12 @@
+import asyncio
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI
 
 from app.infrastructure.config import Settings, get_settings
+from app.infrastructure.messaging import broker, payments_exchange, payments_queue
+from app.infrastructure.messaging.outbox_worker import run_outbox_publisher
 from app.presentation.api.exception_handlers import register_exception_handlers
 from app.presentation.api.routers import build_api_router
 
@@ -12,7 +15,18 @@ from app.presentation.api.routers import build_api_router
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     """Управляет ресурсами, общими для всего времени жизни приложения."""
 
-    yield
+    await broker.connect()
+    exchange = await broker.declare_exchange(payments_exchange)
+    queue = await broker.declare_queue(payments_queue)
+    await queue.bind(exchange=exchange, routing_key=payments_queue.routing_key)
+    outbox_task = asyncio.create_task(run_outbox_publisher())
+    try:
+        yield
+    finally:
+        outbox_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await outbox_task
+        await broker.stop()
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:

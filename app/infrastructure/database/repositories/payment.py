@@ -1,6 +1,7 @@
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, update
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.ports import OutboxRepository, PaymentRepository
@@ -20,13 +21,24 @@ class SQLAlchemyPaymentRepository(PaymentRepository):
         self._session = session
         self._outbox_repository = outbox_repository
 
-    async def add(self, payment: Payment) -> None:
+    async def add(self, payment: Payment) -> bool:
         """Добавляет платёж и его события в текущую транзакцию."""
 
-        self._session.add(self._to_model(payment))
+        values = self._to_values(payment)
+        statement = (
+            insert(PaymentModel)
+            .values(**values)
+            .on_conflict_do_nothing(index_elements=[PaymentModel.idempotency_key])
+            .returning(PaymentModel.id)
+        )
+        inserted_id = await self._session.scalar(statement)
+        if inserted_id is None:
+            return False
+
         for event in payment.events:
             await self._outbox_repository.add(event)
         await self._session.flush()
+        return True
 
     async def get_by_id(self, payment_id: UUID) -> Payment | None:
         model = await self._session.get(PaymentModel, payment_id)
@@ -39,20 +51,37 @@ class SQLAlchemyPaymentRepository(PaymentRepository):
         model = await self._session.scalar(statement)
         return self._to_entity(model) if model is not None else None
 
-    @staticmethod
-    def _to_model(payment: Payment) -> PaymentModel:
-        return PaymentModel(
-            id=payment.id,
-            amount=payment.amount,
-            currency=payment.currency.value,
-            description=payment.description,
-            metadata_=dict(payment.metadata),
-            status=payment.status.value,
-            idempotency_key=payment.idempotency_key,
-            webhook_url=payment.webhook_url,
-            created_at=payment.created_at,
-            processed_at=payment.processed_at,
+    async def save_processed(self, payment: Payment) -> bool:
+        """Сохраняет результат, только если платёж ещё ожидает обработки."""
+
+        statement = (
+            update(PaymentModel)
+            .where(
+                PaymentModel.id == payment.id,
+                PaymentModel.status == PaymentStatus.PENDING.value,
+            )
+            .values(
+                status=payment.status.value,
+                processed_at=payment.processed_at,
+            )
         )
+        result = await self._session.execute(statement)
+        return result.rowcount == 1
+
+    @staticmethod
+    def _to_values(payment: Payment) -> dict[str, object]:
+        return {
+            "id": payment.id,
+            "amount": payment.amount,
+            "currency": payment.currency.value,
+            "description": payment.description,
+            "metadata_": dict(payment.metadata),
+            "status": payment.status.value,
+            "idempotency_key": payment.idempotency_key,
+            "webhook_url": payment.webhook_url,
+            "created_at": payment.created_at,
+            "processed_at": payment.processed_at,
+        }
 
     @staticmethod
     def _to_entity(model: PaymentModel) -> Payment:

@@ -10,5 +10,3 @@ class PaymentCreated:
     payment_id: UUID
     event_id: UUID = field(default_factory=uuid4)
     occurred_at: datetime = field(default_factory=lambda: datetime.now(UTC))
-
-    event_type: str = field(default="payment.created", init=False)

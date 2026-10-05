@@ -35,6 +35,13 @@ class CreatePayment:
                 description=command.description,
                 metadata=command.metadata,
             )
-            await self._payment_repository.add(payment)
+            created = await self._payment_repository.add(payment)
+            if not created:
+                existing_payment = await self._payment_repository.get_by_idempotency_key(
+                    command.idempotency_key
+                )
+                if existing_payment is None:
+                    raise RuntimeError("Не удалось получить платёж после конфликта ключа")
+                return PaymentDTO.from_entity(existing_payment)
 
         return PaymentDTO.from_entity(payment)

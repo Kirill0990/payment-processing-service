@@ -14,8 +14,9 @@ class FakePaymentRepository:
     def __init__(self) -> None:
         self.payments: dict[UUID, Payment] = {}
 
-    async def add(self, payment: Payment) -> None:
+    async def add(self, payment: Payment) -> bool:
         self.payments[payment.id] = payment
+        return True
 
     async def get_by_id(self, payment_id: UUID) -> Payment | None:
         return self.payments.get(payment_id)
@@ -29,6 +30,20 @@ class FakePaymentRepository:
             ),
             None,
         )
+
+
+class ConcurrentConflictRepository(FakePaymentRepository):
+    def __init__(self, existing_payment: Payment) -> None:
+        super().__init__()
+        self.existing_payment = existing_payment
+        self.lookup_count = 0
+
+    async def add(self, payment: Payment) -> bool:
+        return False
+
+    async def get_by_idempotency_key(self, idempotency_key: str) -> Payment | None:
+        self.lookup_count += 1
+        return None if self.lookup_count == 1 else self.existing_payment
 
 
 class FakeUnitOfWork:
@@ -85,6 +100,21 @@ class PaymentUseCasesTestCase(unittest.IsolatedAsyncioTestCase):
         result = await GetPayment(self.payment_repository).execute(created.id)
 
         self.assertEqual(result, created)
+
+    async def test_return_winner_of_concurrent_idempotency_conflict(self) -> None:
+        existing_payment = Payment.create(
+            amount=Decimal("100.00"),
+            currency=Currency.RUB,
+            idempotency_key="request-1",
+            webhook_url="https://example.com/webhook",
+        )
+        repository = ConcurrentConflictRepository(existing_payment)
+
+        result = await CreatePayment(self.unit_of_work, repository).execute(self._command())
+
+        self.assertEqual(result.id, existing_payment.id)
+        self.assertEqual(repository.lookup_count, 2)
+        self.assertEqual(self.unit_of_work.commit_count, 1)
 
     async def test_get_missing_payment(self) -> None:
         payment_id = uuid4()
