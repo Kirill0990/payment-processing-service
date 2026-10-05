@@ -1,1 +1,0 @@
-"""Application data transfer objects."""
