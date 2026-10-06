@@ -1,7 +1,9 @@
+from typing import Any, cast
 from uuid import UUID
 
 from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.ports import OutboxRepository, PaymentRepository
@@ -65,7 +67,7 @@ class SQLAlchemyPaymentRepository(PaymentRepository):
                 processed_at=payment.processed_at,
             )
         )
-        result = await self._session.execute(statement)
+        result = cast(CursorResult[Any], await self._session.execute(statement))
         return result.rowcount == 1
 
     @staticmethod

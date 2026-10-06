@@ -1,6 +1,7 @@
 from types import TracebackType
 from typing import Protocol, Self
 
+
 class UnitOfWork(Protocol):
     """Порт управления границей транзакции."""
 

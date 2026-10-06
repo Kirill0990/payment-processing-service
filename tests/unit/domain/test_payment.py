@@ -4,11 +4,11 @@ from decimal import Decimal
 
 from app.domain.entities import Payment
 from app.domain.enums import Currency, PaymentStatus
+from app.domain.events import PaymentCreated
 from app.domain.exceptions import (
     InvalidPaymentAmountError,
     InvalidPaymentStateTransitionError,
 )
-from app.domain.events import PaymentCreated
 
 
 class PaymentTestCase(unittest.TestCase):
